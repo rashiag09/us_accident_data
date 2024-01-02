@@ -1,0 +1,140 @@
+---
+title: "US Accident Data"
+output: html_document
+date: '2022-08-30'
+---
+
+```{r setup, include=F}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = T)
+```
+
+Loading the required libraries
+```{r}
+library(naniar)
+library(lubridate)
+library(janitor)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(hexbin)
+library(gridExtra)
+library(tibble)
+library(treemapify)
+library(vtreat)
+```
+
+
+Loading the data and saving as "usaccident" 
+```{r}
+data.path<-'./cdaprojectcopy.csv'
+usaccident<-read.csv(data.path, header=T, as.is = F)
+```
+
+Cleaning the Date-Time data; Removing empty rows for all the time columns to NA and updating the date columns with respect to their format
+```{r}
+time_col<-c('ACCIDENT_TIME', 'SHIFT_BEGIN_TIME')
+usaccident[,time_col][usaccident[,time_col]==""] <- NA
+
+usaccident <- within(usaccident, {
+  ACCIDENT_DT <- dmy(ACCIDENT_DT)
+  RETURN_TO_WORK_DT <- mdy(RETURN_TO_WORK_DT)
+  INVEST_BEGIN_DT <- mdy(INVEST_BEGIN_DT)
+})
+```
+
+Removing question marks from the columns and replacing with NAs in the data frame
+```{r}
+replace_na_in_columns <- c("EQUIP_MODEL_NO", "DEGREE_INJURY_CD", "UG_LOCATION_CD", "UG_MINING_METHOD_CD", "MINING_EQUIP_CD", "EQUIP_MFR_CD", "IMMED_NOTIFY_CD", "INJ_BODY_PART_CD", "NATURE_INJURY_CD", "INJURY_SOURCE_CD", "ACTIVITY_CD", "OCCUPATION_CD", "ACCIDENT_TYPE_CD", "CLASSIFICATION_CD")
+
+for (i in replace_na_in_columns) {
+  usaccident[i] <- gsub("?",NA, usaccident[i], fixed = TRUE)
+}
+```
+
+
+Created a list of values which needs to be replaced by NA for no future confusion
+```{r}
+na_values <- c("", "NO VALUE FOUND", "?", "NOT MARKED", "UNKNOWN", "Not Reported", "Not on this list")
+usaccident <- usaccident %>% replace_with_na_all(condition = ~.x %in% na_values)
+```
+
+Removing unwanted columns as they are the IDs which are not much useful for the later part of analysis
+```{r}
+crop_columns <- c("MINE_ID", "CONTROLLER_ID", "CONTROLLER_NAME", "OPERATOR_ID", "OPERATOR_NAME",  "CONTRACTOR_ID", "DOCUMENT_NO", "SUBUNIT_CD", "DEGREE_INJURY_CD", "FIPS_STATE_CD", "UG_LOCATION_CD", "UG_MINING_METHOD_CD", "MINING_EQUIP_CD", "EQUIP_MFR_CD", "EQUIP_MODEL_NO", "OCCUPATION_CD", "ACTIVITY_CD", "INJURY_SOURCE_CD", "INJ_BODY_PART_CD", "IMMED_NOTIFY_CD", "CLASSIFICATION_CD", "ACCIDENT_TYPE_CD", "NATURE_INJURY_CD")
+
+removed_col_data <- select(usaccident, -crop_columns)
+```
+
+Printing the total number of NAs
+```{r}
+apply(is.na(removed_col_data), 2, sum)
+```
+
+## Including Plots
+
+The below graph shows that the number of accidents are decreasing over the years in both industries representing the wide decrease in the accidents majorly in Metal Mining Industry.
+Even though the Metal Mining Industry has more number of accidents, they are gradually decreasing over the years to a great extent as there is clearly a big draft between the year 2000 and year 2015.
+```{r plot1}
+ggplot(data = removed_col_data) + geom_bar(mapping = aes(y=CAL_YR, fill = COAL_METAL_IND), position = "dodge") + coord_flip() + labs(title = "Comparision of No. of Accidents in Coal and Metal Industries over 15 yrs", x = "No. of Accidents", y = "year") + annotate("text", x = 115, y = 2011, label = paste("Metal mining industry has more accidents", "compared to the coal industry", sep = "\n"))
+```
+
+
+The graph represents that there are a large number of accidents happening among the less experienced people making 16 the most number of accidents between the years from 0 to 10.
+It is also visible that at and after 40 years of experience there are very rare chances of people getting into accidents.
+```{r plot2}
+#explain a bit more about this shit at the end
+#total experience vs job experience
+ggplot(removed_col_data) + geom_point(mapping = aes(x = JOB_EXPER, y = NO_INJURIES, color = JOB_EXPER)) + labs(title = "Impact of Job Experience over the number of accidents", x = "Job Experience", y = "No. of injuries", color="Job_Experience") + annotate("text", x= 30, y = 15, label = paste("Number of accidents decrease as the job ", "experience increases", sep = "\n")) 
+```
+
+
+Looking at the graph it is safe to say the underground subunit is the most dangerous one to work in with total 716 number of accidents. But when looked closer at the strip, query, open pit subunit, the number of accidents is closer to the underground making it the second dangerous or not a safe subunit to work at.
+Also, auger and culm bank/refuse pile has only 1 accident happened all over the 15 years making it the safest subunit to work at.
+Independent shops or yards and office workers at mine site have been into 5 and 9 number of accidents respectively. 
+As compared to the underground and strip, query, open pit the number of accidents in the above four units are way lower or almost negligible.
+```{r plot3}
+ggplot(removed_col_data, mapping = aes(y = reorder(SUBUNIT, SUBUNIT,function(y) length(y)))) + 
+  geom_bar(fill = "lightblue") + 
+  geom_text(aes(label = ..count..), stat = "count", color = "darkred", hjust = "inward") + 
+  labs(title = "Number of Accidents happening in each Subunit", x = "No. of Accidents", y = "Subunit") + 
+  annotate("text", x = 500, y = 4, label = paste("Underground Subunit has the most", "number of accidents making", "it the most dangerous", sep = "\n"))
+```
+
+
+The graph shows that 595 people have faced days away from work only which might show that the injury is not that serious and people recovered after a few days away from work where as there has been only 11 fatalities over the time period of 15 years.
+Even though there is some negligible missing data it does not impact the chart at all.
+```{r plot4}
+ggplot(removed_col_data, mapping = aes(y = reorder(DEGREE_INJURY, DEGREE_INJURY, function(y) length(y)))) + 
+  geom_bar(fill = "lightpink") + 
+  geom_text(aes(label = ..count..), stat = "count", color = "darkred", hjust = "inward") + 
+  labs(title = "How many accidents are Impacting people in what ways", x = "No. of Accidents", y = "Degree of Injury") +
+  annotate("text", x = 400, y = 5, label = paste("People with most number of accidnets", "have had days away from work only", sep = "\n")) 
+```
+
+
+
+The graph is most concentrated to the lower side of the boxplot showing that there are not much days lost due to accidents.
+The number of accidents do not clearly affect the number of days lost for work.
+```{r plot5}
+restrict <- ggplot(removed_col_data) + 
+  geom_boxplot(aes(y=DAYS_RESTRICT), outlier.colour = 'darkblue',
+               outlier.shape = 16, outlier.size = 2, notch = FALSE) + 
+  labs(y = "days restricted")
+lost <- ggplot(removed_col_data) + 
+  geom_boxplot(aes(y=DAYS_LOST), outlier.colour = 'darkblue',
+               outlier.shape = 16, outlier.size = 2, notch = FALSE) + 
+  labs(y = "days lost")
+grid.arrange(restrict, lost, ncol=2) 
+
+```
+
+
+
+People with less mining experience face more number accidents compared to the people with more experience 
+```{r plot6}
+ggplot(removed_col_data, aes(x= MINE_EXPER)) + 
+  geom_histogram(binwidth = 7, fill = 'lightgreen')+
+  labs(title = 'Distribution of Mining Experience', x = "mining experience") 
+```
+
+
